@@ -1,0 +1,247 @@
+-- Membuat Database
+CREATE DATABASE IF NOT EXISTS inventory_management;
+USE inventory_management;
+
+-- ==================== TABEL UTAMA ====================
+
+-- 1. Tabel Kategori
+CREATE TABLE categories (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- 2. Tabel Supplier
+CREATE TABLE suppliers (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(150) NOT NULL,
+    contact_person VARCHAR(100),
+    phone VARCHAR(20),
+    email VARCHAR(100),
+    address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- 3. Tabel Produk
+CREATE TABLE products (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    category_id INT,
+    supplier_id INT,
+    price DECIMAL(15,2) DEFAULT 0,
+    stock INT DEFAULT 0,
+    min_stock INT DEFAULT 5,
+    location VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
+);
+
+-- 4. Tabel Transaksi Masuk
+CREATE TABLE transactions_in (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(15,2) NOT NULL,
+    total DECIMAL(15,2) NOT NULL,
+    transaction_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    description VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+-- 5. Tabel Transaksi Keluar
+CREATE TABLE transactions_out (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(15,2) NOT NULL,
+    total DECIMAL(15,2) NOT NULL,
+    transaction_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    description VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+-- 6. Tabel User (untuk login)
+CREATE TABLE users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    role ENUM('admin','staff','manager') DEFAULT 'staff',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- 7. Tabel Log Aktivitas
+CREATE TABLE activity_logs (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    action VARCHAR(50) NOT NULL,
+    table_name VARCHAR(50),
+    record_id INT,
+    old_value TEXT,
+    new_value TEXT,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ==================== TRIGGER ====================
+
+-- Trigger untuk update stok produk saat transaksi masuk
+DELIMITER $$
+CREATE TRIGGER update_stock_in
+AFTER INSERT ON transactions_in
+FOR EACH ROW
+BEGIN
+    UPDATE products 
+    SET stock = stock + NEW.quantity 
+    WHERE id = NEW.product_id;
+END$$
+DELIMITER ;
+
+-- Trigger untuk update stok produk saat transaksi keluar
+DELIMITER $$
+CREATE TRIGGER update_stock_out
+AFTER INSERT ON transactions_out
+FOR EACH ROW
+BEGIN
+    UPDATE products 
+    SET stock = stock - NEW.quantity 
+    WHERE id = NEW.product_id;
+END$$
+DELIMITER ;
+
+-- ==================== VIEW ====================
+
+-- View untuk melihat stok produk dengan informasi kategori dan supplier
+CREATE VIEW view_product_stock AS
+SELECT 
+    p.id,
+    p.code,
+    p.name,
+    p.stock,
+    p.min_stock,
+    p.price,
+    c.name AS category_name,
+    s.name AS supplier_name,
+    p.location,
+    CASE 
+        WHEN p.stock <= p.min_stock THEN 'Low Stock'
+        WHEN p.stock <= p.min_stock * 3 THEN 'Medium Stock'
+        ELSE 'High Stock'
+    END AS stock_status
+FROM products p
+LEFT JOIN categories c ON p.category_id = c.id
+LEFT JOIN suppliers s ON p.supplier_id = s.id;
+
+-- View untuk laporan transaksi masuk
+CREATE VIEW view_transactions_in AS
+SELECT 
+    ti.id,
+    p.code AS product_code,
+    p.name AS product_name,
+    ti.quantity,
+    ti.price,
+    ti.total,
+    ti.transaction_date,
+    ti.description
+FROM transactions_in ti
+JOIN products p ON ti.product_id = p.id
+ORDER BY ti.transaction_date DESC;
+
+-- View untuk laporan transaksi keluar
+CREATE VIEW view_transactions_out AS
+SELECT 
+    to2.id,
+    p.code AS product_code,
+    p.name AS product_name,
+    to2.quantity,
+    to2.price,
+    to2.total,
+    to2.transaction_date,
+    to2.description
+FROM transactions_out to2
+JOIN products p ON to2.product_id = p.id
+ORDER BY to2.transaction_date DESC;
+
+-- ==================== INDEX ====================
+
+CREATE INDEX idx_product_name ON products(name);
+CREATE INDEX idx_product_code ON products(code);
+CREATE INDEX idx_transaction_date_in ON transactions_in(transaction_date);
+CREATE INDEX idx_transaction_date_out ON transactions_out(transaction_date);
+
+-- ==================== DATA DUMMY ====================
+
+-- Insert Kategori
+INSERT INTO categories (name, description) VALUES
+('Elektronik', 'Produk elektronik dan peralatan digital'),
+('Furniture', 'Perabotan rumah dan kantor'),
+('Makanan', 'Produk makanan dan minuman'),
+('Pakaian', 'Produk fashion dan aksesoris'),
+('Perlengkapan Kantor', 'Alat tulis dan perlengkapan kantor');
+
+-- Insert Supplier
+INSERT INTO suppliers (name, contact_person, phone, email, address) VALUES
+('PT Elektronik Jaya', 'Budi Santoso', '081234567890', 'budi@elektronikjaya.com', 'Jl. Raya Elektronik No. 123, Jakarta'),
+('CV Furniture Indah', 'Siti Rahayu', '081298765432', 'siti@furnitureindah.com', 'Jl. Furniture No. 45, Bandung'),
+('PT Sumber Pangan', 'Ahmad Hidayat', '081356789012', 'ahmad@sumberpangan.com', 'Jl. Pangan Raya No. 78, Surabaya'),
+('Toko Fashion Modern', 'Dewi Permata', '081345678901', 'dewi@fashionmodern.com', 'Jl. Fashion No. 9, Bali');
+
+-- Insert User (password: admin123)
+INSERT INTO users (username, password, full_name, email, role) VALUES
+('admin', '$2y$10$YourHashedPasswordHere', 'Administrator', 'admin@inventory.com', 'admin'),
+('staff1', '$2y$10$YourHashedPasswordHere', 'Staff One', 'staff1@inventory.com', 'staff'),
+('manager1', '$2y$10$YourHashedPasswordHere', 'Manager One', 'manager1@inventory.com', 'manager');
+
+-- Insert Produk
+INSERT INTO products (code, name, description, category_id, supplier_id, price, stock, min_stock, location) VALUES
+('ELC-001', 'Laptop', 'Laptop 14 inch RAM 8GB SSD 256GB', 1, 1, 8500000, 25, 5, 'Rak A-1'),
+('ELC-002', 'Smartphone', 'Smartphone 6.5 inch 128GB', 1, 1, 4500000, 30, 10, 'Rak A-2'),
+('FRN-001', 'Meja Kantor', 'Meja kantor ukuran 120x60 cm', 2, 2, 1500000, 15, 3, 'Rak B-1'),
+('FRN-002', 'Kursi Kantor', 'Kursi kantor ergonomis', 2, 2, 800000, 20, 5, 'Rak B-2'),
+('MKN-001', 'Kopi', 'Kopi bubuk kemasan 250gr', 3, 3, 50000, 100, 20, 'Rak C-1'),
+('MKN-002', 'Snack', 'Snack kemasan berbagai rasa', 3, 3, 25000, 150, 30, 'Rak C-2'),
+('FSN-001', 'Kemeja', 'Kemeja pria katun', 4, 4, 200000, 50, 10, 'Rak D-1'),
+('FSN-002', 'Celana', 'Celana jeans', 4, 4, 300000, 40, 10, 'Rak D-2');
+
+-- Insert Transaksi Masuk
+INSERT INTO transactions_in (product_id, quantity, price, total, description) VALUES
+(1, 10, 8500000, 85000000, 'Pembelian awal laptop'),
+(2, 15, 4500000, 67500000, 'Pembelian smartphone'),
+(3, 10, 1500000, 15000000, 'Pembelian meja kantor'),
+(5, 50, 50000, 2500000, 'Pembelian kopi');
+
+-- Insert Transaksi Keluar
+INSERT INTO transactions_out (product_id, quantity, price, total, description) VALUES
+(1, 2, 8500000, 17000000, 'Penjualan laptop ke PT X'),
+(2, 5, 4500000, 22500000, 'Penjualan smartphone ke Toko Y'),
+(5, 10, 50000, 500000, 'Penjualan kopi ke Cafe Z');
+
+-- ==================== QUERY CONTOH ====================
+
+-- SELECT: Menampilkan semua produk dengan stok rendah
+SELECT * FROM view_product_stock WHERE stock_status = 'Low Stock';
+
+-- UPDATE: Mengupdate harga produk
+UPDATE products SET price = 9000000 WHERE code = 'ELC-001';
+
+-- DELETE: Menghapus produk
+DELETE FROM products WHERE id = 999; -- Hanya contoh, sesuaikan dengan data yang ada
+
+-- ALTER: Menambah kolom baru pada tabel products
+ALTER TABLE products ADD COLUMN weight DECIMAL(10,2) DEFAULT 0;
+
+-- DROP: Menghapus kolom yang tidak digunakan (hati-hati)
+-- ALTER TABLE products DROP COLUMN weight;
